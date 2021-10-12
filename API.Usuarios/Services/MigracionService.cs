@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 
 namespace API.Usuarios.Services
@@ -13,6 +15,7 @@ namespace API.Usuarios.Services
     {
         private readonly IMigracionRepository repo;
         private MyDBContext myDbContext;
+        static readonly HttpClient client = new HttpClient();
 
         public MigracionService(IMigracionRepository repo, MyDBContext context)
         {
@@ -32,6 +35,7 @@ namespace API.Usuarios.Services
 
         public async Task<ResponseMigracion> ProcesarMigracionAsync()
         {
+
             ResponseMigracion respuesta = new ResponseMigracion();
             try
             {
@@ -46,110 +50,115 @@ namespace API.Usuarios.Services
                 myDbContext.SaveChanges();
                 int IdSchedule = calendario.IdSchedule;
 
-                var configuracion = myDbContext.Configuraciones.Single(p => p.Habilitar.Equals(true));
-                var periodo = "";
-                if (configuracion != null)
+                var listaConfiguracion = myDbContext.Configuraciones.Where(p => p.Habilitar.Equals(true)).ToList();
+                if (listaConfiguracion.Count > 0)
                 {
-                    periodo = configuracion.Periodo;
-                }
 
-
-                List<Migracion> listaMigracion = new List<Migracion>();
-
-                if (!periodo.Equals(""))
-                {
-                    //Buscar si existe periodo en la migracion
-                    var migraciones = myDbContext.Migraciones.Where(m => m.Periodo.Contains(periodo)).ToList();
-                    if (migraciones.Count > 0)
+                    var periodo = "";
+                    foreach (var configuracion in listaConfiguracion)
                     {
-                        //Existen Migraciones - Debe filtrar por fecha y periodo
-                        var dateAndTime = DateTime.Now;
-                        var fechaActual = dateAndTime.Date.ToString("dd-MM-yy");
-                        var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
-                        var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
 
-                        foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
-                        {
-                            var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
-                            if (oMigracion != null)
-                            {
-                                listaMigracion.Add(oMigracion);
-                            }
-                        }
+                        periodo = configuracion.Periodo;
 
-                        foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
-                        {
-                            var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
-                            if (oMigracion != null)
-                            {
-                                listaMigracion.Add(oMigracion);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        //No Existen Migraciones - Debe filtrar por periodo
-                        var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo)).ToList();
-                        var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
 
-                        foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
+                        List<Migracion> listaMigracion = new List<Migracion>();
+
+                        if (!periodo.Equals(""))
                         {
-                            var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
-                            if (!oMigracion.Emplid.Equals(0))
+                            //Buscar si existe periodo en la migracion
+                            var migraciones = myDbContext.Migraciones.Where(m => m.Periodo.Contains(periodo)).ToList();
+                            if (migraciones.Count > 0)
                             {
-                                var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
-                                if (existeMigracion == null)
+                                //Existen Migraciones - Debe filtrar por fecha y periodo
+                                var dateAndTime = DateTime.Now;
+                                var fechaActual = dateAndTime.Date.ToString("dd-MM-yy");
+                                var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
+                                var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
+
+                                foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
                                 {
-                                    listaMigracion.Add(oMigracion);
+                                    var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
+                                    if (oMigracion != null)
+                                    {
+                                        listaMigracion.Add(oMigracion);
+                                    }
+                                }
+
+                                foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
+                                {
+                                    var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
+                                    if (oMigracion != null)
+                                    {
+                                        listaMigracion.Add(oMigracion);
+                                    }
                                 }
                             }
-                        }
-
-                        foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
-                        {
-                            var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
-                            if (!oMigracion.Emplid.Equals(0))
+                            else
                             {
-                                var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
-                                if (existeMigracion == null)
+                                //No Existen Migraciones - Debe filtrar por periodo
+                                var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo)).ToList();
+                                var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
+
+                                foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
                                 {
-                                    listaMigracion.Add(oMigracion);
+                                    var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
+                                    if (!oMigracion.Emplid.Equals(0))
+                                    {
+                                        var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
+                                        if (existeMigracion == null)
+                                        {
+                                            listaMigracion.Add(oMigracion);
+                                        }
+                                    }
+                                }
+
+                                foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
+                                {
+                                    var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
+                                    if (!oMigracion.Emplid.Equals(0))
+                                    {
+                                        var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
+                                        if (existeMigracion == null)
+                                        {
+                                            listaMigracion.Add(oMigracion);
+                                        }
+                                    }
+                                }
+
+                            }
+
+                            //Insertar en la Tabla Migracion
+                            if (listaMigracion.Count > 0)
+                            {
+                                foreach (var entity in listaMigracion)
+                                {
+                                    await AddAsync(entity);
                                 }
                             }
-                        }
 
-                    }
-
-                    //Insertar en la Tabla Migracion
-                    if (listaMigracion.Count > 0)
-                    {
-                        foreach (var entity in listaMigracion)
-                        {
-                            await AddAsync(entity);
-                        }
-                    }
-
-                    var listaEnvio = myDbContext.Migraciones.Where(m => m.Estado.Equals("Pendiente") && m.NroMigracion.Equals(IdSchedule)).ToList();
-                    if (listaEnvio.Count > 0)
-                    {
-                        var rptaMigracion1 = enviarMigraciones(IdSchedule, listaEnvio);
-                        MigracionesCorrectas = rptaMigracion1.correctas;
-                        MigracionesIncorrectas = rptaMigracion1.incorrectas;
-
-                        var listaEnvioError = myDbContext.Migraciones.Where(m => m.Estado.Equals("Rechazados") && m.NroMigracion.Equals(IdSchedule)).ToList();
-                        if (listaEnvioError.Count > 0)
-                        {
-                            int intento = 1;
-                            int intentoCorrecto = 0;
-                            do
+                            var listaEnvio = myDbContext.Migraciones.Where(m => m.Estado.Equals("Pendiente") && m.NroMigracion.Equals(IdSchedule)).ToList();
+                            if (listaEnvio.Count > 0)
                             {
-                                var rptaMigracion2 = enviarMigraciones(IdSchedule, listaEnvio);
-                                intentoCorrecto += rptaMigracion2.correctas;
-                                intento++;
-                            } while (intento < 3);
+                                var rptaMigracion1 = enviarMigraciones(IdSchedule, listaEnvio);
+                                MigracionesCorrectas = rptaMigracion1.correctas;
+                                MigracionesIncorrectas = rptaMigracion1.incorrectas;
 
-                            MigracionesCorrectas += intentoCorrecto;
-                            MigracionesIncorrectas -= intentoCorrecto;
+                                var listaEnvioError = myDbContext.Migraciones.Where(m => m.Estado.Equals("Rechazados") && m.NroMigracion.Equals(IdSchedule)).ToList();
+                                if (listaEnvioError.Count > 0)
+                                {
+                                    int intento = 1;
+                                    int intentoCorrecto = 0;
+                                    do
+                                    {
+                                        var rptaMigracion2 = enviarMigraciones(IdSchedule, listaEnvio);
+                                        intentoCorrecto += rptaMigracion2.correctas;
+                                        intento++;
+                                    } while (intento < 3);
+
+                                    MigracionesCorrectas += intentoCorrecto;
+                                    MigracionesIncorrectas -= intentoCorrecto;
+                                }
+                            }
                         }
                     }
                 }
@@ -172,14 +181,7 @@ namespace API.Usuarios.Services
         {
             var oMigracion = new Migracion();
             var item = alumnosMoodle.Find(x => x.Emplid.Equals(usuarioOracle.Emplid));
-
-            if (usuarioOracle.Emplid == 2013016481)
-            {
-                oMigracion.Estado = "Pendiente";
-            }
-            else {
-                oMigracion.Estado = "Pendiente";
-            }
+         
 
             if (item == null)
             {
@@ -199,14 +201,7 @@ namespace API.Usuarios.Services
 
             var oMigracion = new Migracion();
             var item = alumnosOracle.Find(x => x.Emplid.Equals(usuarioMoodle.Emplid));
-            if (usuarioMoodle.Emplid == 2013016481)
-            {
-                oMigracion.Estado = "Pendiente";
-            }
-            else
-            {
-                oMigracion.Estado = "Pendiente";
-            }
+           
             if (item == null)
             {
                 oMigracion.TipoMigracion = "Quitar";
@@ -220,7 +215,7 @@ namespace API.Usuarios.Services
 
             return oMigracion;
         }
-       
+
 
         public ResponseMigracion enviarMigraciones(int IdSchedule, List<Migracion> listaEnvio)
         {
@@ -229,7 +224,7 @@ namespace API.Usuarios.Services
             int MigracionesIncorrectas = 0;
 
             if (listaEnvio.Count > 0)
-            {                
+            {
                 foreach (var entity in listaEnvio)
                 {
                     if (!entity.Estado.Equals("Aceptado"))
@@ -246,37 +241,55 @@ namespace API.Usuarios.Services
 
                             //Enviar a WS===============================================================
 
-                            //PostUsuario(Convert.ToString(req));
-
-
-                            var response = "Ok";
-
-                            Log log = new Log();
-                            log.IdMigracion = IdSchedule;
-                            log.Request = Convert.ToString(req);
-                            log.Response = response;
-                            log.Fecha = DateTime.Now;
-                            log.Tipo = entity.TipoMigracion;
-
-                            myDbContext.Logs.Add(log);
-                            myDbContext.SaveChanges();
-
-                            if (response.Equals("Ok"))
+                            try
                             {
-                                MigracionesCorrectas++;
-                                entity.NroIntento++;
-                                entity.Estado = "Aceptado";
-                                myDbContext.Migraciones.Add(entity);
+
+                                client.BaseAddress = new Uri("https://reqbin.com/echo/post/json");
+
+
+                                var postTask = client.PostAsJsonAsync<RequestUsuario>("migracion", req);
+                                postTask.Wait();
+                                var Res = postTask.Result;
+
+                                Log log = new Log();
+                                log.IdMigracion = IdSchedule;
+                                log.Request = Convert.ToString(req);
+                                log.Response = Res.ToString();
+                                log.Fecha = DateTime.Now;
+                                log.Tipo = entity.TipoMigracion;
+
+                                myDbContext.Logs.Add(log);
                                 myDbContext.SaveChanges();
+
+                                if (Res.IsSuccessStatusCode)
+                                {
+                                    MigracionesCorrectas++;
+                                    entity.NroIntento++;
+                                    entity.Estado = "Aceptado";
+                                    myDbContext.Migraciones.Update(entity);
+                                    myDbContext.SaveChanges();
+                                }
+                                else
+                                {
+                                    MigracionesIncorrectas++;
+                                    entity.NroIntento++;
+                                    entity.Estado = "Rechazado";
+                                    myDbContext.Migraciones.Update(entity);
+                                    myDbContext.SaveChanges();
+                                }
                             }
-                            else
+                            catch (HttpRequestException e)
                             {
                                 MigracionesIncorrectas++;
                                 entity.NroIntento++;
                                 entity.Estado = "Rechazado";
-                                myDbContext.Migraciones.Add(entity);
+                                myDbContext.Migraciones.Update(entity);
                                 myDbContext.SaveChanges();
+
+                                Console.WriteLine("\nException Caught!");
+                                Console.WriteLine("Message :{0} ", e.Message);
                             }
+
                         }
                     }
                 }
