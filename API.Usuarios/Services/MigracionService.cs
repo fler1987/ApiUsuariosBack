@@ -66,7 +66,7 @@ namespace API.Usuarios.Services
                         var dateAndTime = DateTime.Now;
                         var fechaActual = dateAndTime.Date.ToString("dd-MM-yy");
                         var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
-                        var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
+                        var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
 
                         foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
                         {

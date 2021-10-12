@@ -42,8 +42,7 @@ namespace API.Usuarios.Controllers
 
         [HttpGet("GetByPeriodo", Name = "GetByPeriodo")]
         public async Task<ActionResult<Configuracion>> GetByPeriodo(string Periodo)
-        {
-            //return Ok(service.GetConfiguracionByPeriodoAsync(Periodo));
+        {            
             return await service.GetConfiguracionByPeriodoAsync(Periodo);
         }
 
