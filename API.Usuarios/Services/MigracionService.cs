@@ -1,5 +1,6 @@
 ﻿using API.Usuarios.Models;
 using API.Usuarios.Repository;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -7,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace API.Usuarios.Services
@@ -32,6 +34,8 @@ namespace API.Usuarios.Services
         {
             return await repo.AddAsync(entity);
         }
+
+
 
         public async Task<ResponseMigracion> ProcesarMigracionAsync()
         {
@@ -73,23 +77,33 @@ namespace API.Usuarios.Services
                                 var dateAndTime = DateTime.Now;
                                 var fechaActual = dateAndTime.Date.ToString("dd-MM-yy");
                                 var alumnosOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
-                                var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo)).ToList();
+                                var alumnosMoodle = myDbContext.UsuarioCursoMoodles.Where(o => o.Strm.Equals(periodo) && o.Sysdate.Equals(Convert.ToDateTime(fechaActual))).ToList();
 
                                 foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
                                 {
-                                    var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
-                                    if (oMigracion != null)
+                                    var existeUsuarioEnMoodle = myDbContext.UsuarioCursoMoodles.Where(m => m.Emplid.Equals(usuarioOracle.Emplid)).SingleOrDefault();                                
+                                    if (existeUsuarioEnMoodle == null)
                                     {
-                                        listaMigracion.Add(oMigracion);
+                                        var oMigracion = CrearModeloMigracion(IdSchedule, usuarioOracle.Emplid, usuarioOracle.Strm, "Agregar");
+                                        var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
+                                        if (existeMigracion == null)
+                                        {
+                                            listaMigracion.Add(oMigracion);
+                                        }
                                     }
                                 }
 
                                 foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
                                 {
-                                    var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
-                                    if (oMigracion != null)
+                                    var existeUsuarioEnOracle = myDbContext.UsuarioCursoOracles.Where(o => o.Emplid.Equals(usuarioMoodle.Emplid)).SingleOrDefault(); ;
+                                    if (existeUsuarioEnOracle == null)
                                     {
-                                        listaMigracion.Add(oMigracion);
+                                        var oMigracion = CrearModeloMigracion(IdSchedule, usuarioMoodle.Emplid, usuarioMoodle.Strm, "Quitar");
+                                        var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
+                                        if (existeMigracion == null)
+                                        {
+                                            listaMigracion.Add(oMigracion);
+                                        }                                       
                                     }
                                 }
                             }
@@ -101,33 +115,35 @@ namespace API.Usuarios.Services
 
                                 foreach (UsuarioCursoOracle usuarioOracle in alumnosOracle)
                                 {
-                                    var oMigracion = MergeAgregarUsuarios(IdSchedule, usuarioOracle, alumnosMoodle);
-                                    if (!oMigracion.Emplid.Equals(0))
+                                    var item = alumnosMoodle.Find(x => x.Emplid.Equals(usuarioOracle.Emplid));
+                                    if (item == null)
                                     {
+                                        var oMigracion = CrearModeloMigracion(IdSchedule, usuarioOracle.Emplid, usuarioOracle.Strm, "Agregar");
                                         var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
                                         if (existeMigracion == null)
                                         {
                                             listaMigracion.Add(oMigracion);
                                         }
+
                                     }
                                 }
 
                                 foreach (UsuarioCursoMoodle usuarioMoodle in alumnosMoodle)
                                 {
-                                    var oMigracion = MergeQuitarUsuarios(IdSchedule, usuarioMoodle, alumnosOracle);
-                                    if (!oMigracion.Emplid.Equals(0))
+                                    var item = alumnosOracle.Find(x => x.Emplid.Equals(usuarioMoodle.Emplid));
+                                    if (item == null)
                                     {
-                                        var existeMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
-                                        if (existeMigracion == null)
+                                        var oMigracion = CrearModeloMigracion(IdSchedule, usuarioMoodle.Emplid, usuarioMoodle.Strm, "Quitar");
+                                        var existeEnListaMigracion = listaMigracion.Find(x => x.Emplid.Equals(oMigracion.Emplid));
+                                        if (existeEnListaMigracion == null)
                                         {
                                             listaMigracion.Add(oMigracion);
                                         }
                                     }
                                 }
-
                             }
 
-                            //Insertar en la Tabla Migracion
+                            //Guardar Migracion
                             if (listaMigracion.Count > 0)
                             {
                                 foreach (var entity in listaMigracion)
@@ -136,9 +152,11 @@ namespace API.Usuarios.Services
                                 }
                             }
 
+                            //Obtener Migraciones Pendientes
                             var listaEnvio = myDbContext.Migraciones.Where(m => m.Estado.Equals("Pendiente") && m.NroMigracion.Equals(IdSchedule)).ToList();
                             if (listaEnvio.Count > 0)
                             {
+                                //Enviar Migracion
                                 var rptaMigracion1 = enviarMigraciones(IdSchedule, listaEnvio);
                                 MigracionesCorrectas = rptaMigracion1.correctas;
                                 MigracionesIncorrectas = rptaMigracion1.incorrectas;
@@ -172,16 +190,33 @@ namespace API.Usuarios.Services
             }
             catch (Exception ex)
             {
+                
+                GuardarLog(0, "", ex.Message.ToString(), "");
                 respuesta.respuesta = ex.Message.ToString();
                 return respuesta;
             }
+        }
+
+        public Migracion CrearModeloMigracion(int IdSchedule, int Emplid, string Periodo, String TipoMigracion)
+        {
+            var oMigracion = new Migracion();
+
+            oMigracion.TipoMigracion = TipoMigracion;
+            oMigracion.Fecha = DateTime.Now;
+            oMigracion.NroMigracion = IdSchedule;
+            oMigracion.NroIntento = 0;
+            oMigracion.Emplid = Emplid;
+            oMigracion.Periodo = Periodo;
+            oMigracion.Estado = "Pendiente";
+
+
+            return oMigracion;
         }
 
         public Migracion MergeAgregarUsuarios(int IdSchedule, UsuarioCursoOracle usuarioOracle, List<UsuarioCursoMoodle> alumnosMoodle)
         {
             var oMigracion = new Migracion();
             var item = alumnosMoodle.Find(x => x.Emplid.Equals(usuarioOracle.Emplid));
-         
 
             if (item == null)
             {
@@ -201,7 +236,7 @@ namespace API.Usuarios.Services
 
             var oMigracion = new Migracion();
             var item = alumnosOracle.Find(x => x.Emplid.Equals(usuarioMoodle.Emplid));
-           
+
             if (item == null)
             {
                 oMigracion.TipoMigracion = "Quitar";
@@ -229,54 +264,42 @@ namespace API.Usuarios.Services
                 {
                     if (!entity.Estado.Equals("Aceptado"))
                     {
-                        var alumno = myDbContext.Alumnos.First(a => a.Emplid.Equals(entity.Emplid));
+                        var alumno = myDbContext.Alumnos.Where(a => a.Emplid.Equals(entity.Emplid)).SingleOrDefault();
                         if (alumno != null)
                         {
-                            RequestUsuario req = new RequestUsuario();
-                            req.Emplid = alumno.Emplid;
-                            req.Nombre = alumno.Nombre;
-                            req.ApellidoPaterno = alumno.ApellidoPaterno;
-                            req.ApellidoMaterno = alumno.ApellidoMaterno;
-                            req.TipoMigracion = entity.TipoMigracion;
+                            
 
                             //Enviar a WS===============================================================
-
                             try
                             {
 
-                                client.BaseAddress = new Uri("https://reqbin.com/echo/post/json");
+                                RequestUsuario req = new RequestUsuario();
+                                req.Emplid = alumno.Emplid;
+                                req.Nombre = alumno.Nombre;
+                                req.ApellidoPaterno = alumno.ApellidoPaterno;
+                                req.ApellidoMaterno = alumno.ApellidoMaterno;
+                                req.TipoMigracion = entity.TipoMigracion;
 
+                                var request = JsonConvert.SerializeObject(req);
 
-                                var postTask = client.PostAsJsonAsync<RequestUsuario>("migracion", req);
-                                postTask.Wait();
-                                var Res = postTask.Result;
+                                var response = ConsumirWS(request);
 
-                                Log log = new Log();
-                                log.IdMigracion = IdSchedule;
-                                log.Request = Convert.ToString(req);
-                                log.Response = Res.ToString();
-                                log.Fecha = DateTime.Now;
-                                log.Tipo = entity.TipoMigracion;
-
-                                myDbContext.Logs.Add(log);
-                                myDbContext.SaveChanges();
-
-                                if (Res.IsSuccessStatusCode)
+                                if (response.Equals("OK"))
                                 {
+
+                                    var respuestaLog = GuardarLog(IdSchedule, request, response.ToString(), entity.TipoMigracion);
                                     MigracionesCorrectas++;
-                                    entity.NroIntento++;
                                     entity.Estado = "Aceptado";
-                                    myDbContext.Migraciones.Update(entity);
-                                    myDbContext.SaveChanges();
+                                    var respuestaActualizarMigracion = ActualizarMigracion(entity);
+                                   
                                 }
-                                else
-                                {
-                                    MigracionesIncorrectas++;
-                                    entity.NroIntento++;
+                                else {
+                                    var respuestaLog = GuardarLog(IdSchedule, request, response.ToString(), entity.TipoMigracion);
+                                    MigracionesIncorrectas++;                                    
                                     entity.Estado = "Rechazado";
-                                    myDbContext.Migraciones.Update(entity);
-                                    myDbContext.SaveChanges();
+                                    var respuestaActualizarMigracion = ActualizarMigracion(entity);
                                 }
+                                
                             }
                             catch (HttpRequestException e)
                             {
@@ -300,41 +323,63 @@ namespace API.Usuarios.Services
             return respuesta;
         }
 
+        public string ConsumirWS(string request) {
 
-        //public WebResponse PostUsuario(int IdSchedule, string TipoMigracion, string data)
-        //{
-        //    var url = $"http://localhost:8080/usuario";
-        //    var request = (HttpWebRequest)WebRequest.Create(url);
-        //    string json = $"{{\"data\":\"{data}\"}}";
-        //    request.Method = "POST";
-        //    request.ContentType = "application/json";
-        //    request.Accept = "application/json";
-        //    using (var streamWriter = new StreamWriter(request.GetRequestStream()))
-        //    {
-        //        streamWriter.Write(json);
-        //        streamWriter.Flush();
-        //        streamWriter.Close();
-        //    }
-        //    try
-        //    {
-        //        using (WebResponse response = request.GetResponse())
-        //        {
-        //            using (Stream strReader = response.GetResponseStream())
-        //            {
-        //                if (strReader == null) return;
-        //                using (StreamReader objReader = new StreamReader(strReader))
-        //                {
-        //                    return 
-        //                    string responseBody = objReader.ReadToEnd();
-        //                    return responseBody;
-        //                }
-        //            }
-        //        }
-        //    }
-        //    catch (WebException ex)
-        //    {
-        //        // Handle error
-        //    }
-        //}
+            HttpClient client = new HttpClient();            
+            
+            var url = "http://ip.jsontest.com/";            
+            //var data = new StringContent(request, Encoding.UTF8, "application/json");
+            //var response = await client.PostAsync(url, data);
+                  
+            var webRequest = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(request, Encoding.UTF8, "application/json")
+            };
+
+            var response = client.Send(webRequest);
+
+            //using var reader = new StreamReader(response.Content.ReadAsStream());
+            //return reader.ReadToEnd();
+            if (response.IsSuccessStatusCode)
+            {
+                //result = response.Content.ReadAsStringAsync().Result;
+                return response.StatusCode.ToString();
+            }
+            else {
+                return "Error";
+            }           
+        }
+
+        public string GuardarLog(int IdSchedule, string request, string response, string tipoMigracion) {
+
+            Log log = new Log();
+            log.IdMigracion = IdSchedule;
+            log.Request =request;
+            log.Response = response;
+            log.Fecha = DateTime.Now;
+            log.Tipo = tipoMigracion;
+
+            myDbContext.Logs.Add(log);
+            if (myDbContext.SaveChanges() > 0)
+            {
+                return "OK";
+            }
+            else {
+                return "Error";
+            }
+        }
+
+        public string ActualizarMigracion(Migracion entity) {
+
+            entity.NroIntento++;            
+            myDbContext.Migraciones.Update(entity);
+            if (myDbContext.SaveChanges() > 0)
+            {
+                return "OK";
+            }
+            else {
+                return "Error Actualizar Migracion";
+            }
+        }
     }
 }
